@@ -1,4 +1,5 @@
 import { icon } from './icon.js';
+import { escapeHtml } from '../../utils.js';
 
 export function createDropzone(container, options = {}) {
   const {
@@ -82,7 +83,7 @@ function showFileInfo(zoneEl, files) {
   zoneEl.innerHTML = `
     <div class="dropzone__file-info">
       ${icon('check-circle', 20)}
-      <span>${names}</span>
+      <span>${escapeHtml(names)}</span>
       <span style="color: var(--color-text-muted);">(${sizeStr})</span>
     </div>
   `;

@@ -125,20 +125,38 @@ export function loadFromStorage() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
     const saved = JSON.parse(raw);
-    if (saved.currentStep) state.currentStep = saved.currentStep;
-    if (saved.steps) {
-      for (const [id, data] of Object.entries(saved.steps)) {
-        if (state.steps[id]) {
-          state.steps[id] = { ...state.steps[id], ...data };
-        }
-      }
+    applySavedSteps(saved);
+    if (saved.exportMode === 'personal' || saved.exportMode === 'admin') {
+      state.exportData.exportMode = saved.exportMode;
     }
-    if (saved.exportMode) state.exportData.exportMode = saved.exportMode;
-    if (saved.selectedUserUuid) state.exportData.selectedUserUuid = saved.selectedUserUuid;
+    if (typeof saved.selectedUserUuid === 'string') state.exportData.selectedUserUuid = saved.selectedUserUuid;
     return true;
   } catch (e) {
     console.warn('Failed to load state:', e);
     return false;
+  }
+}
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// Saved/imported sessions are untrusted input: only accept known step ids and
+// plain-object step data, never touching prototype keys like __proto__.
+function applySavedSteps(saved) {
+  if (!isPlainObject(saved)) return;
+  if (typeof saved.currentStep === 'string' && Object.hasOwn(state.steps, saved.currentStep)) {
+    state.currentStep = saved.currentStep;
+  }
+  if (!isPlainObject(saved.steps)) return;
+  for (const id of Object.keys(state.steps)) {
+    if (!Object.hasOwn(saved.steps, id) || !isPlainObject(saved.steps[id])) continue;
+    const clean = {};
+    for (const [key, value] of Object.entries(saved.steps[id])) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+      clean[key] = value;
+    }
+    state.steps[id] = { ...state.steps[id], ...clean };
   }
 }
 
@@ -155,14 +173,7 @@ export function importSessionJSON(json) {
   try {
     const data = JSON.parse(json);
     if (data.version !== 1) throw new Error('Unsupported session version');
-    if (data.currentStep) state.currentStep = data.currentStep;
-    if (data.steps) {
-      for (const [id, stepData] of Object.entries(data.steps)) {
-        if (state.steps[id]) {
-          state.steps[id] = { ...state.steps[id], ...stepData };
-        }
-      }
-    }
+    applySavedSteps(data);
     notify();
     persistToStorage();
     return true;

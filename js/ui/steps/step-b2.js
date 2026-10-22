@@ -124,7 +124,7 @@ function renderAdminProjects(container, projects) {
         if (docSlot) {
           createCopyableBlock(docSlot, {
             text: doc.content || '(empty)',
-            label: escapeHtml(doc.filename || `Document ${di + 1}`)
+            label: doc.filename || `Document ${di + 1}`
           });
         }
       });
