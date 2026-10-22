@@ -120,6 +120,7 @@ export function render(container, stepState, globalState) {
         setExportData('selectedUserUuid', null);
         setExportData('userMemory', null);
         setExportData('userProjects', null);
+        setExportData('rawSource', null);
         updateStep('a2', { completed: false, processing: false, progress: 0, stats: null });
       }
 

@@ -1,7 +1,10 @@
 /**
- * Reads a Claude export ZIP file and extracts conversations.json.
+ * Reads a Claude export ZIP file and extracts every known data file:
+ * conversations.json (required), users.json, projects.json, memories.json.
  * Reports progress via callback.
  */
+
+const KNOWN_FILES = ['conversations', 'users', 'projects', 'memories'];
 
 export async function readExportZip(file, onProgress) {
   if (!window.JSZip) {
@@ -12,57 +15,65 @@ export async function readExportZip(file, onProgress) {
 
   const zip = await JSZip.loadAsync(file);
 
-  onProgress('Searching for conversations...', 25);
+  onProgress('Searching for export files...', 25);
 
-  // Find conversations.json - could be at root or nested
-  let conversationsFile = null;
-
+  // Find known files - could be at root or nested
+  const entries = {};
   for (const [path, entry] of Object.entries(zip.files)) {
     if (entry.dir) continue;
-    const name = path.split('/').pop();
-    if (name === 'conversations.json') {
-      conversationsFile = entry;
-      break;
+    const name = path.split('/').pop().toLowerCase();
+    const key = name.replace(/\.json$/, '');
+    if (name.endsWith('.json') && KNOWN_FILES.includes(key) && !entries[key]) {
+      entries[key] = entry;
     }
   }
 
-  if (!conversationsFile) {
-    // Try finding any JSON file that looks like conversations
+  if (!entries.conversations) {
+    // Try finding any other JSON array that looks like conversations
     for (const [path, entry] of Object.entries(zip.files)) {
-      if (entry.dir) continue;
-      if (path.endsWith('.json')) {
-        const preview = await entry.async('string').then(s => s.slice(0, 100));
-        if (preview.trim().startsWith('[')) {
-          conversationsFile = entry;
-          break;
-        }
+      if (entry.dir || !path.endsWith('.json')) continue;
+      const preview = await entry.async('string').then(s => s.slice(0, 2000));
+      if (preview.trim().startsWith('[') && preview.includes('chat_messages')) {
+        entries.conversations = entry;
+        break;
       }
     }
   }
 
-  if (!conversationsFile) {
+  if (!entries.conversations) {
     throw new Error(
       'Could not find conversations.json in the ZIP. ' +
       'Make sure this is a Claude data export (Settings > Privacy > Export Data).'
     );
   }
 
-  onProgress('Parsing conversations JSON...', 40);
-
-  const jsonString = await conversationsFile.async('string');
-
-  onProgress('Parsing JSON data...', 60);
-
-  let raw;
-  try {
-    raw = JSON.parse(jsonString);
-  } catch (e) {
-    throw new Error('Failed to parse conversations.json: ' + e.message);
+  const result = { conversations: [], users: [], projects: [], memories: [], warnings: [] };
+  let step = 0;
+  for (const key of KNOWN_FILES) {
+    const entry = entries[key];
+    step++;
+    if (!entry) {
+      if (key !== 'conversations') result.warnings.push(`${key}.json not found in the ZIP.`);
+      continue;
+    }
+    onProgress(`Parsing ${key}.json...`, 30 + Math.round((step / KNOWN_FILES.length) * 60));
+    const jsonString = await entry.async('string');
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonString);
+    } catch (e) {
+      if (key === 'conversations') throw new Error('Failed to parse conversations.json: ' + e.message);
+      result.warnings.push(`Failed to parse ${key}.json: ${e.message}`);
+      continue;
+    }
+    // memories.json may be a single object rather than an array
+    if (!Array.isArray(parsed)) parsed = parsed && typeof parsed === 'object' ? [parsed] : [];
+    result[key] = parsed;
   }
 
   onProgress('Done reading ZIP.', 100);
 
-  return raw;
+  return result;
 }
 
 /**

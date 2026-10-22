@@ -21,6 +21,7 @@ function createInitialState() {
       selectedUserUuid: null,
       userMemory: null,          // string from memories.json for selected user
       userProjects: null,        // filtered projects array for selected user
+      rawSource: null,           // original export (ZIP File or per-user JSON) for raw/ in the package
       conversations: null,
       conversationIndex: null,
       artifacts: null,

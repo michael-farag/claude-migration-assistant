@@ -9,7 +9,7 @@ import { extractArtifacts, buildArtifactIndex } from '../../processing/artifact-
 import { generateContextDocument } from '../../processing/context-generator.js';
 import { generateMemoryScript } from '../../processing/memory-generator.js';
 import { buildMigrationPackage, downloadBlob } from '../../processing/zip-writer.js';
-import { readAdminExport, buildUserList, filterByUser } from '../../processing/admin-reader.js';
+import { readAdminExport, buildUserList, filterByUser, resolvePersonalData } from '../../processing/admin-reader.js';
 
 // Module-scoped: holds raw admin data so it doesn't bloat reactive state / localStorage
 let adminRawData = null;
@@ -63,13 +63,14 @@ async function processZip(file, progressArea, resultsArea) {
   resultsArea.innerHTML = '';
 
   try {
-    const raw = await readExportZip(file, (phase, pct) => {
+    const exportFiles = await readExportZip(file, (phase, pct) => {
       progressIndicator.update(phase, pct);
     });
 
     progressIndicator.update('Parsing conversations...', 65);
     await tick();
-    const conversations = parseConversations(raw);
+    const conversations = parseConversations(exportFiles.conversations);
+    const { memory, projects } = resolvePersonalData(exportFiles);
 
     progressIndicator.update('Extracting artifacts...', 75);
     await tick();
@@ -89,15 +90,21 @@ async function processZip(file, progressArea, resultsArea) {
     setExportData('artifactIndex', buildArtifactIndex(artifacts));
     setExportData('contextDocument', contextDocument);
     setExportData('memoryScript', memoryScript);
+    setExportData('userMemory', memory);
+    setExportData('userProjects', projects);
+    setExportData('rawSource', { kind: 'zip', file });
 
     const stats = {
       conversationCount: conversations.length,
       messageCount: conversations.reduce((n, c) => n + c.chat_messages.length, 0),
-      artifactCount: artifacts.length
+      artifactCount: artifacts.length,
+      projectCount: projects.length,
+      hasMemory: !!memory
     };
     updateStep('a2', { completed: true, stats });
 
     progressIndicator.complete('Processing complete');
+    showWarnings(progressArea, exportFiles.warnings);
     showResults(resultsArea, getState());
 
   } catch (err) {
@@ -196,16 +203,7 @@ async function processAdminUpload(files, progressArea, userPickerArea, resultsAr
 
     progressIndicator.complete(`Loaded ${data.conversations.length} conversations across ${userList.length} users`);
 
-    // Show warnings
-    if (data.warnings.length > 0) {
-      const warningHtml = data.warnings.map(w =>
-        `<div class="info-box info-box--warning" style="margin-top: var(--space-sm);">
-          <span class="info-box__icon">${icon('alert-triangle', 16)}</span>
-          <span>${escapeHtml(w)}</span>
-        </div>`
-      ).join('');
-      progressArea.insertAdjacentHTML('beforeend', warningHtml);
-    }
+    showWarnings(progressArea, data.warnings);
 
     renderUserPicker(userPickerArea, progressArea, resultsArea, getState());
 
@@ -280,7 +278,7 @@ async function processSelectedUser(userUuid, pickerArea, progressArea, resultsAr
     progressIndicator.update('Filtering user data...', 20);
     await tick();
 
-    const { conversations: rawConvos, memory, projects } = filterByUser(adminRawData, userUuid);
+    const { conversations: rawConvos, memory, projects, memoryEntry } = filterByUser(adminRawData, userUuid);
 
     progressIndicator.update('Parsing conversations...', 40);
     await tick();
@@ -308,11 +306,22 @@ async function processSelectedUser(userUuid, pickerArea, progressArea, resultsAr
     setExportData('memoryScript', memoryScript);
     setExportData('userMemory', memory);
     setExportData('userProjects', projects);
+    setExportData('rawSource', {
+      kind: 'json',
+      files: {
+        'conversations.json': rawConvos,
+        'projects.json': projects,
+        'memories.json': memoryEntry ? [memoryEntry] : [],
+        'user.json': adminRawData.users.find(u => u.uuid === userUuid) || { uuid: userUuid }
+      }
+    });
 
     const stats = {
       conversationCount: conversations.length,
       messageCount: conversations.reduce((n, c) => n + c.chat_messages.length, 0),
-      artifactCount: artifacts.length
+      artifactCount: artifacts.length,
+      projectCount: projects.length,
+      hasMemory: !!memory
     };
     updateStep('a2', { completed: true, stats });
 
@@ -340,7 +349,7 @@ async function processSelectedUser(userUuid, pickerArea, progressArea, resultsAr
 // ─── Shared results display ───────────────────────────────────────────────────
 
 function showResults(resultsArea, state) {
-  const { conversations, artifacts, contextDocument, memoryScript, userProjects } = state.exportData;
+  const { conversations, artifacts, userMemory, userProjects } = state.exportData;
   if (!conversations) return;
 
   const { recent, archive } = categorizeByAge(conversations);
@@ -412,6 +421,11 @@ function showResults(resultsArea, state) {
           ${icon('folder', 14)} artifacts/
           <span class="output-tree__count">${(artifacts || []).length} files</span>
         </div>
+        ${userMemory ? `
+        <div class="output-tree__item output-tree__item--folder" style="--depth:1">
+          ${icon('folder', 14)} memory/
+        </div>
+        ` : ''}
         ${(userProjects || []).length > 0 ? `
         <div class="output-tree__item output-tree__item--folder" style="--depth:1">
           ${icon('folder', 14)} projects/
@@ -423,6 +437,10 @@ function showResults(resultsArea, state) {
         </div>
         <div class="output-tree__item output-tree__item--file" style="--depth:1">
           ${icon('file-text', 14)} memory-import-script.txt
+        </div>
+        <div class="output-tree__item output-tree__item--folder" style="--depth:1">
+          ${icon('folder', 14)} raw/
+          <span class="output-tree__count">original export data</span>
         </div>
       </div>
     </div>
@@ -450,6 +468,18 @@ function showResults(resultsArea, state) {
     if (typeof lucide !== 'undefined') lucide.createIcons();
   });
 
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function showWarnings(area, warnings) {
+  if (!warnings || warnings.length === 0) return;
+  const warningHtml = warnings.map(w =>
+    `<div class="info-box info-box--warning" style="margin-top: var(--space-sm);">
+      <span class="info-box__icon">${icon('alert-triangle', 16)}</span>
+      <span>${escapeHtml(w)}</span>
+    </div>`
+  ).join('');
+  area.insertAdjacentHTML('beforeend', warningHtml);
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 

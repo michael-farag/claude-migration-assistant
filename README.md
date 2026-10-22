@@ -62,18 +62,20 @@ In admin mode, steps B1 and B2 are auto-populated from the export data.
 
 | Data | Fidelity | Method |
 |---|---|---|
-| Conversation text | Exact copy (read-only archive) | Parsed from export JSON |
-| Artifact source code | Exact copy (as files) | Extracted from message content |
-| Memory (synthesized) | Approximate | Prompt-based capture, or auto from admin export |
-| Project structure | Approximate | Manual recreation with guided prompts |
-| Knowledge files | Exact if you have originals | Re-upload to new projects |
+| Conversation text | Exact copy (read-only archive) | Parsed from export JSON, incl. thinking, tool calls/results, citations, attachment text |
+| Artifact source code | Exact copy (as files), every version | Replays artifact create/update/rewrite and file-tool edits |
+| Memory (synthesized) | Exact when `memories.json` is present | Auto from export (personal or admin); prompt-based capture otherwise |
+| Project memory | Exact when present | From `memories.json` `project_memories` |
+| Project instructions + knowledge docs | Exact | From `projects.json` (personal or admin) |
+| Raw export data | Lossless | Original JSON copied to `raw/` in the package |
+| Binary uploads (images/PDFs) | Not available | Claude exports contain only extracted text and filenames |
 
 ## Architecture
 
 Static single-page app with no server component:
 
 ```
-index.html              # Shell with CDN deps (JSZip, Lucide, Marked)
+index.html              # Shell with CSP + SRI-pinned CDN deps (JSZip, Marked, DOMPurify, Lucide, FileSaver)
 css/
   variables.css         # Design tokens
   layout.css            # App shell layout
@@ -86,7 +88,7 @@ js/
     step-definitions.js # Step metadata
     prompts.js          # Copy-paste prompts for manual steps
   processing/
-    zip-reader.js       # Reads personal export ZIPs (JSZip)
+    zip-reader.js       # Reads personal export ZIPs (conversations/projects/memories/users)
     admin-reader.js     # Reads admin export JSON files
     conversation-parser.js
     artifact-extractor.js
@@ -101,13 +103,18 @@ js/
     steps/              # One module per step (step-a1.js .. step-b6.js)
 ```
 
-## Privacy
+## Privacy & Security
 
 All processing happens in your browser. The app:
-- Does not make any network requests (beyond loading CDN libraries)
-- Does not send your data anywhere
-- Stores only step completion state in localStorage (not conversation data)
-- Can export/import session progress as a local JSON file
+- Does not make any network requests beyond loading pinned CDN libraries. A Content-Security-Policy
+  (`connect-src 'none'`) enforces this, and every CDN script is pinned to an exact version with
+  Subresource Integrity hashes.
+- Renders export-derived Markdown only through DOMPurify (falls back to plain text if it fails to load)
+- Sanitizes every file and folder name written to the migration package (no `../` path traversal)
+- Stores step progress in localStorage. This includes your **edited context document** (step A3)
+  and **memory capture text** (step B1), so use **Reset** when finished on a shared machine.
+  Session export files contain the same data -- treat them as sensitive.
+- In admin mode, the package's `raw/` folder contains only the selected user's records
 
 ## License
 
