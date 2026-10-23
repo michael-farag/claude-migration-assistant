@@ -155,16 +155,21 @@ export async function buildMigrationPackage(state) {
 async function addRawSource(rawFolder, rawSource) {
   if (!rawSource) return;
 
-  if (rawSource.kind === 'zip' && rawSource.file) {
-    // Personal export: copy every entry of the original ZIP
-    const source = await JSZip.loadAsync(rawSource.file);
-    for (const [path, entry] of Object.entries(source.files)) {
-      if (entry.dir) continue;
-      const segments = path.split(/[\\/]+/).filter(s => s && s !== '.' && s !== '..');
-      if (segments.length === 0) continue;
-      let folder = rawFolder;
-      for (const seg of segments.slice(0, -1)) folder = folder.folder(safePathSegment(seg));
-      folder.file(safePathSegment(segments[segments.length - 1], 'file', 200), await entry.async('uint8array'));
+  if (rawSource.kind === 'zips' && Array.isArray(rawSource.files)) {
+    // Personal export: copy every entry of every original ZIP, one folder per ZIP
+    const usedDirs = new Set();
+    for (const file of rawSource.files) {
+      const dirName = uniqueName(safePathSegment(file.name.replace(/\.zip$/i, ''), 'export'), usedDirs);
+      const zipFolder = rawFolder.folder(dirName);
+      const source = await JSZip.loadAsync(file);
+      for (const [path, entry] of Object.entries(source.files)) {
+        if (entry.dir) continue;
+        const segments = path.split(/[\\/]+/).filter(s => s && s !== '.' && s !== '..');
+        if (segments.length === 0) continue;
+        let folder = zipFolder;
+        for (const seg of segments.slice(0, -1)) folder = folder.folder(safePathSegment(seg));
+        folder.file(safePathSegment(segments[segments.length - 1], 'file', 200), await entry.async('uint8array'));
+      }
     }
   } else if (rawSource.kind === 'json' && rawSource.files) {
     // Admin export: only the selected user's records (never the whole team)

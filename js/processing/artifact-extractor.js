@@ -148,6 +148,26 @@ function extractFromContent(msg, conv, artifactMap) {
       art.title = art.path.split('/').pop() || 'Untitled';
       art.content = input.file_text;
       recordVersion(art, msg, 'create_file');
+    } else if (item.name === 'Write' && input.file_path && typeof input.content === 'string') {
+      // Claude Code style file tool
+      const art = getOrCreate(artifactMap, conv, String(input.file_path), msg, 'file');
+      art.path = String(input.file_path);
+      art.title = art.path.split('/').pop() || 'Untitled';
+      art.content = input.content;
+      recordVersion(art, msg, 'write');
+    } else if (item.name === 'Edit' && input.file_path) {
+      const art = artifactMap.get(artifactKey(conv, String(input.file_path)));
+      if (!art) continue;
+      applyEdit(art, input.old_string, input.new_string);
+      recordVersion(art, msg, 'edit');
+    } else if (item.name === 'visualize:show_widget' && typeof input.widget_code === 'string') {
+      // Inline visual widgets
+      const id = item.id || `widget-${Math.random().toString(36).slice(2, 10)}`;
+      const art = getOrCreate(artifactMap, conv, String(id), msg, 'widget');
+      art.title = input.title || 'Widget';
+      art.type = 'text/html';
+      art.content = input.widget_code;
+      recordVersion(art, msg, 'create');
     } else if (item.name === 'str_replace' && input.path) {
       const key = artifactKey(conv, String(input.path));
       const art = artifactMap.get(key);

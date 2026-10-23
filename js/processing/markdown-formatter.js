@@ -107,6 +107,11 @@ function formatContentItem(item) {
     return `<details>\n<summary>${label}</summary>\n\n${fence(text)}\n\n</details>`;
   }
 
+  if (item.type === 'injected_prompt_block') {
+    if (!item.prompt) return '';
+    return `<details>\n<summary>Injected context${item.injection_source ? ` (${item.injection_source})` : ''}</summary>\n\n${fence(typeof item.prompt === 'string' ? item.prompt : JSON.stringify(item.prompt, null, 2))}\n\n</details>`;
+  }
+
   // Unknown content type: preserve it verbatim rather than dropping it
   return `**[${item.type || 'unknown'} content]**\n` + fence(JSON.stringify(item, null, 2), 'json');
 }

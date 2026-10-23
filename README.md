@@ -14,7 +14,18 @@ When you switch Claude accounts, you lose your conversation history, memory, pro
 ## Two Export Modes
 
 ### Personal Export
-For individual users. Go to Claude Settings > Privacy > Export Data, download the ZIP, and drop it into the tool.
+For individual users. Go to Claude Settings > Privacy > Export Data. Claude emails a **manifest** JSON
+(`manifest-<id>-....json`) that links to one ZIP per data category (`conversations-000.zip`,
+`projects-000.zip`, `memories-000.zip`, `light_metadata-000.zip`, `design_chats-000.zip`, ...).
+
+1. Drop the manifest into step A2. The tool lists every file with its own download link.
+2. Download each ZIP (links open in a new tab using your claude.ai login). Links expire after 24 hours
+   and may only work once, so keep the files.
+3. Drop the ZIPs in (any order, any number of batches). Each ZIP is read individually and the results
+   are merged; conversations split across parts are de-duplicated by UUID.
+
+The tool can't fetch the ZIPs itself: claude.ai doesn't allow cross-origin downloads, and the page's CSP
+blocks all network connections by design. Older single-ZIP exports still work -- drop the ZIP and click Process.
 
 ### Admin Team Export
 For team admins closing an account. The admin export produces a folder of JSON files (`conversations.json`, `users.json`, `memories.json`, `projects.json`) covering all team members. The tool lets you:
@@ -44,7 +55,7 @@ The app walks you through 10 steps in two tracks:
 
 **Track A (Automated)** -- processes the export file client-side:
 - A1: Choose export type and run the data export
-- A2: Upload and process the export (ZIP or admin JSON files)
+- A2: Upload and process the export (manifest + ZIPs, legacy ZIP, or admin JSON files)
 - A3: Review the auto-generated context document
 - A4: Review and mark important artifacts
 
@@ -88,7 +99,8 @@ js/
     step-definitions.js # Step metadata
     prompts.js          # Copy-paste prompts for manual steps
   processing/
-    zip-reader.js       # Reads personal export ZIPs (conversations/projects/memories/users)
+    manifest.js         # Validates the export manifest (claude.ai links + .zip names only)
+    zip-reader.js       # Reads each export ZIP individually and merges the results
     admin-reader.js     # Reads admin export JSON files
     conversation-parser.js
     artifact-extractor.js
